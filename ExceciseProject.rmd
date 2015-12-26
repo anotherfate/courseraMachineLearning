@@ -1,0 +1,160 @@
+---
+title: 'Practical Machine Learning: Exercise Project'
+author: "Mike Kubica"
+date: "December 26, 2015"
+output: html_document
+---
+
+Start by loading the data and creating proper test, quiz and training sets. The HTML addresses are provided in the code for repeatablility purposes. 
+
+```{r}
+library(e1071); library(caret); library(rpart.plot); library(downloader)
+library(dplyr); # lattice, ggplot2 and rpart required
+pmltrainurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+pmltesturl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download(pmltrainurl, "pml-training.csv")
+download(pmltesturl, "pml-testing.csv")
+pmltraining <- read.csv("pml-training.csv", na.strings = c("NA","#DIV/0!"))
+pmltesting <- read.csv("pml-testing.csv", na.strings = c("NA","#DIV/0!"))
+```
+
+Extract a quiz set from the training data to get an idea of out of sample testing. Set Seed to ensure repeatablility, then split the data randomly based on the "classe" result. Do this to ensure equal distribution between results between the two resulting data sets. The training set is now available for training and the quiz set is avaible for intial testing.
+
+```{r}
+library(caTools)
+set.seed(9876)
+spl <- sample.split(pmltraining$classe, .75)
+training <- pmltraining[spl == TRUE,]
+quiz <- pmltraining[spl == FALSE,]
+```
+
+Preprocess by first isolating the variables that are most common.
+```{r}
+library(dplyr)
+training2 <- select(training, roll_belt, pitch_belt, yaw_belt, total_accel_belt,
+                         gyros_belt_x, gyros_belt_y, gyros_belt_z, accel_belt_x,
+                         accel_belt_y, accel_belt_z, magnet_belt_x, magnet_belt_y,
+                         magnet_belt_z, roll_arm, pitch_arm, yaw_arm,
+                         total_accel_arm, gyros_arm_x, gyros_arm_y, gyros_arm_z,
+                         accel_arm_x, accel_arm_y, accel_arm_z, magnet_arm_x,
+                         magnet_arm_y, magnet_arm_z, roll_dumbbell, pitch_dumbbell,
+                         yaw_dumbbell, total_accel_dumbbell, gyros_dumbbell_x,
+                         gyros_dumbbell_y, gyros_dumbbell_z, accel_dumbbell_x,
+                         accel_dumbbell_y, accel_dumbbell_z, magnet_dumbbell_x,
+                         magnet_dumbbell_y, magnet_dumbbell_z, roll_forearm,
+                         pitch_forearm, yaw_forearm, total_accel_forearm,
+                         gyros_forearm_x, gyros_forearm_y, gyros_forearm_z, 
+                         accel_forearm_x, accel_forearm_y, accel_forearm_z,
+                         magnet_forearm_x, magnet_forearm_y, magnet_forearm_z,
+                         classe)
+
+quiz2 <- select(quiz, roll_belt, pitch_belt, yaw_belt, total_accel_belt,   
+                         gyros_belt_x, gyros_belt_y, gyros_belt_z, accel_belt_x,
+                         accel_belt_y, accel_belt_z, magnet_belt_x, magnet_belt_y,
+                         magnet_belt_z, roll_arm, pitch_arm, yaw_arm,
+                         total_accel_arm, gyros_arm_x, gyros_arm_y, gyros_arm_z,
+                         accel_arm_x, accel_arm_y, accel_arm_z, magnet_arm_x,
+                         magnet_arm_y, magnet_arm_z, roll_dumbbell, pitch_dumbbell,
+                         yaw_dumbbell, total_accel_dumbbell, gyros_dumbbell_x,
+                         gyros_dumbbell_y, gyros_dumbbell_z, accel_dumbbell_x,
+                         accel_dumbbell_y, accel_dumbbell_z, magnet_dumbbell_x,
+                         magnet_dumbbell_y, magnet_dumbbell_z, roll_forearm,
+                         pitch_forearm, yaw_forearm, total_accel_forearm,
+                         gyros_forearm_x, gyros_forearm_y, gyros_forearm_z, 
+                         accel_forearm_x, accel_forearm_y, accel_forearm_z,
+                         magnet_forearm_x, magnet_forearm_y, magnet_forearm_z, 
+                         classe)
+
+test2<- select(pmltesting, roll_belt, pitch_belt, yaw_belt, total_accel_belt,   
+                         gyros_belt_x, gyros_belt_y, gyros_belt_z, accel_belt_x,
+                         accel_belt_y, accel_belt_z, magnet_belt_x, magnet_belt_y,
+                         magnet_belt_z, roll_arm, pitch_arm, yaw_arm,
+                         total_accel_arm, gyros_arm_x, gyros_arm_y, gyros_arm_z,
+                         accel_arm_x, accel_arm_y, accel_arm_z, magnet_arm_x,
+                         magnet_arm_y, magnet_arm_z, roll_dumbbell, pitch_dumbbell,
+                         yaw_dumbbell, total_accel_dumbbell, gyros_dumbbell_x,
+                         gyros_dumbbell_y, gyros_dumbbell_z, accel_dumbbell_x,
+                         accel_dumbbell_y, accel_dumbbell_z, magnet_dumbbell_x,
+                         magnet_dumbbell_y, magnet_dumbbell_z, roll_forearm,
+                         pitch_forearm, yaw_forearm, total_accel_forearm,
+                         gyros_forearm_x, gyros_forearm_y, gyros_forearm_z, 
+                         accel_forearm_x, accel_forearm_y, accel_forearm_z,
+                         magnet_forearm_x, magnet_forearm_y, magnet_forearm_z)
+
+```
+
+#Random Forest Model
+
+Use the reduced dataset to build a random forest model. We will limit the number of trees to 200 and set minimum node size to 25 to reduce overfitting. 
+
+```{r}
+library(randomForest)
+set.seed(7356)
+rfmod <- randomForest(classe ~ ., data = training2, ntree = 200, nodesize = 25)
+
+rfmod
+```
+
+#Cross Validation
+
+Run the random Forest Model on the Quiz data and compare the results to the actual values.
+
+```{r, echo=FALSE}
+QuizPredictions <- predict(rfmod, newdata = quiz2)
+
+#Confusion Matrix
+quizConf <- table(QuizPredictions,quiz2$classe)
+print(quizConf)
+```
+
+This gives us a total accuracy of
+```{r}
+
+#Accuracy
+accuracy <- sum(diag(quizConf)/sum(quizConf))
+print(accuracy)
+
+```
+and out of sample error of
+```{r}
+1-accuracy
+```
+
+#Test Predictions
+
+Finally we run the test variables and store them with the code as indicated on the class website.
+
+```{r}
+answers <- predict(rfmod, newdata = test2)
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+
+```
+
+
+The resulting answers were 100% correct, based on submission results on the following website: https://class.coursera.org/predmachlearn-035/assignment
+
+#Sources
+*Coursera: Practical Machine Learning; Jeff Leek, PhD, Roger D. Peng, PhD, Brian Caffo, PhD
+
+*EdX: The Analytics Edge; Allison O'Hair and Dimitris Bertsimas
+
+*The Elements of Statistical Learning; Trevor Hastie, Robert Tibshirani, Jerome Friedman
+
+*Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+Cited by 2 (Google Scholar)
+
+Read more: http://groupware.les.inf.puc-rio.br/har#sbia_paper_section#ixzz3vRjIQqgl
+
+*Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#sbia_paper_section#ixzz3vRjQMS1O
+
